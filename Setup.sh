@@ -17,8 +17,8 @@ if [[ ! "$CLIENT_ID" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f
   echo "The client ID must be a GUID from a Microsoft Entra app registration." >&2
   exit 1
 fi
-if [[ "$TENANT" != "common" && "$TENANT" != "organizations" && "$TENANT" != "consumers" ]]; then
-  echo "Tenant must be common, organizations, or consumers." >&2
+if [[ ! "$TENANT" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]]; then
+  echo "Tenant must be common, organizations, consumers, a Directory tenant ID, or a verified tenant domain." >&2
   exit 1
 fi
 if ! command -v xdg-mime >/dev/null 2>&1 || ! command -v xdg-open >/dev/null 2>&1; then

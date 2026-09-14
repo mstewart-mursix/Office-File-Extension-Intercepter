@@ -64,12 +64,21 @@ Office Web Launcher needs an Application (client) ID so Microsoft can authentica
 
 Some work and school tenants prevent users from creating registrations or granting consent. In that case, a tenant administrator must create or approve the application. The app-folder permission confines the launcher to the `Apps/Office Web Launcher` area of the signed-in user's OneDrive.
 
+The default installer setting uses Microsoft's `common` endpoint and therefore requires the multi-tenant account type selected above. For a single-tenant work or school registration, also copy its **Directory (tenant) ID** and pass it to Setup using the `Tenant` option shown below.
+
 ## Install on Windows
 
 Download the `win-x64` archive for most Windows computers or `win-arm64` for Windows on ARM. Extract the archive to a stable folder, open PowerShell in that folder, and run:
 
 ```powershell
 .\Setup.ps1 -ClientId 'YOUR-APPLICATION-CLIENT-ID' -OpenDefaultApps
+```
+
+For a single-tenant registration:
+
+```powershell
+.\Setup.ps1 -ClientId 'YOUR-APPLICATION-CLIENT-ID' `
+  -Tenant 'YOUR-DIRECTORY-TENANT-ID'
 ```
 
 The script registers the supported extensions for the current Windows user. Windows may retain an existing default application. If it does, select **Office Web Launcher** for the desired extension in the Default Apps screen opened by Setup.
@@ -83,6 +92,12 @@ Download `linux-x64` for most Intel/AMD Ubuntu computers or `linux-arm64` for an
 ```bash
 chmod +x OfficeWebLauncher Setup.sh Uninstall.sh
 ./Setup.sh 'YOUR-APPLICATION-CLIENT-ID'
+```
+
+For a single-tenant registration, pass the Directory tenant ID as the second argument:
+
+```bash
+./Setup.sh 'YOUR-APPLICATION-CLIENT-ID' 'YOUR-DIRECTORY-TENANT-ID'
 ```
 
 Setup installs the application for the current user under `~/.local/lib/office-web-launcher` and registers a standard freedesktop `.desktop` MIME handler. Administrator access is not required.
@@ -167,6 +182,10 @@ On Windows, open **Settings > Apps > Default apps** and select Office Web Launch
 ### Microsoft reports a redirect URI error
 
 Confirm that the Entra app registration has a **Mobile and desktop applications** platform with `http://localhost` as its redirect URI.
+
+### Microsoft reports `AADSTS50194`
+
+The registration is single-tenant while the launcher is configured for the `common` endpoint. Either change **Supported account types** to include multiple organizations and personal Microsoft accounts, or rerun Setup with the registration's Directory tenant ID using the single-tenant command above.
 
 ### Consent is blocked
 

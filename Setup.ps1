@@ -1,7 +1,6 @@
 [CmdletBinding()]
 param(
     [string]$ClientId,
-    [ValidateSet('common', 'organizations', 'consumers')]
     [string]$Tenant = 'common',
     [switch]$OpenDefaultApps
 )
@@ -20,6 +19,9 @@ if ([string]::IsNullOrWhiteSpace($ClientId)) {
 $parsedClientId = [Guid]::Empty
 if (-not [Guid]::TryParse($ClientId, [ref]$parsedClientId)) {
     throw 'ClientId must be a GUID from a Microsoft Entra app registration.'
+}
+if ($Tenant -notmatch '^[A-Za-z0-9][A-Za-z0-9.-]*$') {
+    throw 'Tenant must be common, organizations, consumers, a Directory tenant ID, or a verified tenant domain.'
 }
 
 $config = [ordered]@{ clientId = $ClientId; tenant = $Tenant }

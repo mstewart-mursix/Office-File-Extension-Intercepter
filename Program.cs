@@ -236,7 +236,7 @@ internal static class Program
             if (!success)
             {
                 var detail = query.TryGetValue("error_description", out var description) ? description : "The login response was rejected.";
-                throw new InvalidOperationException(detail);
+                throw new InvalidOperationException(FriendlyAuthError(detail));
             }
 
             return await RequestTokenAsync(new Dictionary<string, string>
@@ -289,6 +289,18 @@ internal static class Program
             .Select(pair => pair.Split('=', 2))
             .ToDictionary(pair => Uri.UnescapeDataString(pair[0].Replace('+', ' ')),
                           pair => Uri.UnescapeDataString((pair.Length > 1 ? pair[1] : "").Replace('+', ' ')));
+
+        private static string FriendlyAuthError(string detail)
+        {
+            if (detail.Contains("AADSTS50194", StringComparison.OrdinalIgnoreCase))
+                return "This Entra application is single-tenant, but Office Web Launcher is configured to use the common sign-in endpoint. " +
+                       "Either change the app registration's Supported account types to include multiple organizations/personal accounts, " +
+                       "or rerun Setup with -Tenant followed by the app registration's Directory (tenant) ID.";
+            if (detail.Contains("AADSTS50011", StringComparison.OrdinalIgnoreCase))
+                return "The app registration does not accept this sign-in callback. Add the Mobile and desktop applications redirect URI " +
+                       "http://localhost to the app registration's Authentication page.";
+            return detail;
+        }
 
         private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
     }
