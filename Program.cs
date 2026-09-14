@@ -28,6 +28,22 @@ internal static class Program
             }
 
             var config = LauncherConfig.Load();
+            if (args[0].Equals("--test-credential-store", StringComparison.OrdinalIgnoreCase))
+            {
+                var target = config.CredentialName + ":self-test";
+                var value = Convert.ToBase64String(RandomNumberGenerator.GetBytes(4096));
+                try
+                {
+                    CredentialStore.Write(target, value);
+                    if (!CryptographicOperations.FixedTimeEquals(
+                            Encoding.UTF8.GetBytes(value),
+                            Encoding.UTF8.GetBytes(CredentialStore.Read(target) ?? "")))
+                        throw new InvalidOperationException("The credential store returned different data than it saved.");
+                    Console.WriteLine("Credential storage test passed.");
+                }
+                finally { CredentialStore.Delete(target); }
+                return 0;
+            }
             if (args[0].Equals("--signout", StringComparison.OrdinalIgnoreCase))
             {
                 CredentialStore.Delete(config.CredentialName);
@@ -69,6 +85,7 @@ internal static class Program
         Console.WriteLine("Office Web Launcher");
         Console.WriteLine("  OfficeWebLauncher.exe <office-file>");
         Console.WriteLine("  OfficeWebLauncher.exe --signout");
+        Console.WriteLine("  OfficeWebLauncher.exe --test-credential-store");
         Console.WriteLine();
         Console.WriteLine("Double-click an associated Office file to upload a copy to the app's");
         Console.WriteLine("private OneDrive app folder and open its Microsoft 365 web editor.");
@@ -352,22 +369,147 @@ internal static class Program
         public static void Write(string target, string secret)
         {
             if (OperatingSystem.IsWindows())
-                WindowsCredentialStore.Write(target, secret);
+                WindowsProtectedCredentialStore.Write(target, secret);
             else
                 SecureFileCredentialStore.Write(target, secret);
         }
 
         public static string? Read(string target) => OperatingSystem.IsWindows()
-            ? WindowsCredentialStore.Read(target)
+            ? WindowsProtectedCredentialStore.Read(target)
             : SecureFileCredentialStore.Read(target);
 
         public static void Delete(string target)
         {
             if (OperatingSystem.IsWindows())
-                WindowsCredentialStore.Delete(target);
+                WindowsProtectedCredentialStore.Delete(target);
             else
                 SecureFileCredentialStore.Delete(target);
         }
+    }
+
+    private static class WindowsProtectedCredentialStore
+    {
+        private const uint CryptProtectUiForbidden = 0x1;
+
+        private static string GetPath(string target)
+        {
+            var directory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "OfficeWebLauncher",
+                "credentials");
+            var name = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(target))).ToLowerInvariant();
+            return Path.Combine(directory, name + ".token");
+        }
+
+        public static void Write(string target, string secret)
+        {
+            var plainBytes = Encoding.UTF8.GetBytes(secret);
+            var input = AllocateBlob(plainBytes);
+            try
+            {
+                if (!CryptProtectData(ref input, "Office Web Launcher sign-in", IntPtr.Zero, IntPtr.Zero,
+                        IntPtr.Zero, CryptProtectUiForbidden, out var output))
+                    throw new InvalidOperationException($"Windows could not encrypt the saved sign-in (error {Marshal.GetLastWin32Error()}).");
+
+                try
+                {
+                    var protectedBytes = CopyBlob(output);
+                    var path = GetPath(target);
+                    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                    File.WriteAllBytes(path, protectedBytes);
+                    CryptographicOperations.ZeroMemory(protectedBytes);
+                }
+                finally { FreeOutputBlob(output, clear: false); }
+            }
+            finally
+            {
+                FreeInputBlob(input, clear: true);
+                CryptographicOperations.ZeroMemory(plainBytes);
+            }
+        }
+
+        public static string? Read(string target)
+        {
+            var path = GetPath(target);
+            if (!File.Exists(path)) return null;
+
+            var protectedBytes = File.ReadAllBytes(path);
+            var input = AllocateBlob(protectedBytes);
+            try
+            {
+                if (!CryptUnprotectData(ref input, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero,
+                        CryptProtectUiForbidden, out var output))
+                    throw new InvalidOperationException($"Windows could not decrypt the saved sign-in (error {Marshal.GetLastWin32Error()}).");
+
+                try
+                {
+                    var plainBytes = CopyBlob(output);
+                    try { return Encoding.UTF8.GetString(plainBytes); }
+                    finally { CryptographicOperations.ZeroMemory(plainBytes); }
+                }
+                finally { FreeOutputBlob(output, clear: true); }
+            }
+            finally
+            {
+                FreeInputBlob(input, clear: false);
+                CryptographicOperations.ZeroMemory(protectedBytes);
+            }
+        }
+
+        public static void Delete(string target)
+        {
+            var path = GetPath(target);
+            if (File.Exists(path)) File.Delete(path);
+            WindowsCredentialStore.Delete(target); // Remove credentials created by older builds, if present.
+        }
+
+        private static DataBlob AllocateBlob(byte[] bytes)
+        {
+            var blob = new DataBlob { Size = bytes.Length, Data = Marshal.AllocHGlobal(bytes.Length) };
+            Marshal.Copy(bytes, 0, blob.Data, bytes.Length);
+            return blob;
+        }
+
+        private static byte[] CopyBlob(DataBlob blob)
+        {
+            var bytes = new byte[blob.Size];
+            Marshal.Copy(blob.Data, bytes, 0, bytes.Length);
+            return bytes;
+        }
+
+        private static void FreeInputBlob(DataBlob blob, bool clear)
+        {
+            if (blob.Data == IntPtr.Zero) return;
+            if (clear && blob.Size > 0)
+                Marshal.Copy(new byte[blob.Size], 0, blob.Data, blob.Size);
+            Marshal.FreeHGlobal(blob.Data);
+        }
+
+        private static void FreeOutputBlob(DataBlob blob, bool clear)
+        {
+            if (blob.Data == IntPtr.Zero) return;
+            if (clear && blob.Size > 0)
+                Marshal.Copy(new byte[blob.Size], 0, blob.Data, blob.Size);
+            LocalFree(blob.Data);
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct DataBlob
+        {
+            public int Size;
+            public IntPtr Data;
+        }
+
+        [DllImport("Crypt32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool CryptProtectData(ref DataBlob input, string description, IntPtr optionalEntropy,
+            IntPtr reserved, IntPtr prompt, uint flags, out DataBlob output);
+
+        [DllImport("Crypt32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool CryptUnprotectData(ref DataBlob input, IntPtr description, IntPtr optionalEntropy,
+            IntPtr reserved, IntPtr prompt, uint flags, out DataBlob output);
+
+        [DllImport("Kernel32.dll")]
+        private static extern IntPtr LocalFree(IntPtr memory);
     }
 
     private static class SecureFileCredentialStore

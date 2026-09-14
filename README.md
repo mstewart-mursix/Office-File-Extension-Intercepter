@@ -83,7 +83,7 @@ For a single-tenant registration:
 
 The script registers the supported extensions for the current Windows user. Windows may retain an existing default application. If it does, select **Office Web Launcher** for the desired extension in the Default Apps screen opened by Setup.
 
-The first double-click opens Microsoft sign-in and consent in the default browser. The refresh token is then stored in Windows Credential Manager for the current Windows user.
+The first double-click opens Microsoft sign-in and consent in the default browser. The refresh token is then encrypted with Windows Data Protection API (DPAPI) for the current Windows user and machine.
 
 ## Install on Ubuntu
 
@@ -201,5 +201,5 @@ Microsoft 365 for the web supports fewer features than the desktop Office applic
 - The application requests access only to its dedicated OneDrive app folder.
 - OAuth uses PKCE and a loopback redirect; the application never receives the Microsoft password.
 - No client secret is embedded in the executable or configuration.
-- Windows credentials use Windows Credential Manager. Linux credentials are restricted to the current Unix user through filesystem permissions.
+- Windows credentials are encrypted with DPAPI for the current user and machine. Linux credentials are restricted to the current Unix user through filesystem permissions.
 - Source code is contained in [Program.cs](Program.cs) and can be reviewed before building.
